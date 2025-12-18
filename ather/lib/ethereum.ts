@@ -80,28 +80,33 @@ export async function loadBlockData(blockNumber: number): Promise<any> {
   return data;
 }
 
+export type LinkItem = { from: string; to: string; hash?: string } | Record<string, string>;
+
 export function filterTransactions(data: any): string {
   const transactions: any[] = data?.result?.transactions ?? [];
-  const filtered: Array<Record<string, string>> = [];
+  const filtered: Array<LinkItem> = [];
   for (const tx of transactions) {
-    const fromAddr = tx?.from;
-    const toAddr = tx?.to;
+    const fromAddr = tx?.from as string | undefined;
+    const toAddr = tx?.to as string | undefined;
+    const hash = (tx?.hash as string | undefined) ?? (tx?.transactionHash as string | undefined);
     if (!fromAddr || !toAddr) continue;
-    filtered.push({ [fromAddr]: toAddr });
+    // Prefer structured object to include tx hash
+    filtered.push({ from: fromAddr, to: toAddr, hash });
   }
   return JSON.stringify(filtered);
 }
 
 export function filterTransactionsRange(blocksData: any[]): string {
-  const aggregated: Array<Record<string, string>> = [];
+  const aggregated: Array<LinkItem> = [];
   for (const block of blocksData) {
     const txs: any[] = block?.result?.transactions ?? [];
     if (!txs || txs.length === 0) continue;
     for (const tx of txs) {
-      const fromAddr = tx?.from;
-      const toAddr = tx?.to;
+      const fromAddr = tx?.from as string | undefined;
+      const toAddr = tx?.to as string | undefined;
+      const hash = (tx?.hash as string | undefined) ?? (tx?.transactionHash as string | undefined);
       if (!fromAddr || !toAddr) continue;
-      aggregated.push({ [fromAddr]: toAddr });
+      aggregated.push({ from: fromAddr, to: toAddr, hash });
     }
   }
   return JSON.stringify(aggregated);

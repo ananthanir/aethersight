@@ -34,6 +34,25 @@ export default function Page() {
   const [rangeStart, setRangeStart] = useState<string>("");
   const [rangeEnd, setRangeEnd] = useState<string>("");
   const apiBase = useMemo(() => getApiBase(), []);
+  const [graphLinks, setGraphLinks] = useState<Array<{ from: string; to: string; hash?: string }>>([]);
+  const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
+  const [searchValue, setSearchValue] = useState<string>("");
+    function shortHexLabel(value: string | undefined, kind: "tx" | "addr") {
+      if (!value || typeof value !== "string") return `N/A (${kind})`;
+      const core = value.startsWith("0x") ? value.slice(2) : value;
+      const first4 = core.slice(0, 4);
+      return `0x${first4}... (${kind})`;
+    }
+
+    function copyToClipboard(text?: string) {
+      if (!text) return;
+      try {
+        navigator.clipboard?.writeText(text);
+      } catch (_) {
+        // noop
+      }
+    }
+
   // Hard-disable page scrollbars to prevent overflow during D3 interactions
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -122,11 +141,13 @@ export default function Page() {
     svg.attr("width", width).attr("height", height);
     d3.selectAll(".tooltip").remove();
 
-    const parsedLinks: LinkMap[] = Array.isArray(linksPayload)
+    const parsedLinks: any[] = Array.isArray(linksPayload)
       ? linksPayload
       : typeof linksPayload === "string"
       ? JSON.parse(linksPayload)
       : [];
+
+    const normalized: Array<{ from: string; to: string; hash?: string }> = [];
 
     if (!Array.isArray(parsedLinks) || parsedLinks.length === 0) {
       renderMessage("No transactions found for selection.", "#888");
@@ -136,14 +157,29 @@ export default function Page() {
     const nodesMap = new Map<string, { id: string; group: "from" | "to" }>();
     const links: Array<{ source: string; target: string } & any> = [];
 
-    parsedLinks.forEach((transaction) => {
-      Object.entries(transaction).forEach(([from, to]) => {
+    parsedLinks.forEach((item) => {
+      // New shape: { from, to, hash? }
+      if (item && typeof item === "object" && "from" in item && "to" in item) {
+        const from = String(item.from);
+        const to = String(item.to);
+        if (!nodesMap.has(from)) nodesMap.set(from, { id: from, group: "from" });
+        if (!nodesMap.has(to)) nodesMap.set(to, { id: to, group: "to" });
+        links.push({ source: from, target: to, hash: item.hash });
+        normalized.push({ from, to, hash: item.hash });
+        return;
+      }
+      // Legacy shape: { fromAddr: toAddr }
+      Object.entries(item ?? {}).forEach(([from, to]) => {
         if (!from || !to) return;
         if (!nodesMap.has(from)) nodesMap.set(from, { id: from, group: "from" });
         if (!nodesMap.has(to)) nodesMap.set(to, { id: to, group: "to" });
         links.push({ source: from, target: to });
+        normalized.push({ from: String(from), to: String(to) });
       });
     });
+
+    // Store normalized links for overlay use
+    setGraphLinks(normalized);
 
     const nodes = Array.from(nodesMap.values()) as Array<any>;
     if (nodes.length === 0) {
@@ -194,7 +230,7 @@ export default function Page() {
     // Remove tooltip creation; no hover effects
 
     nodeSelection.on("click", (_: any, d: any) => {
-      alert(`Address: ${d.id}`);
+      setSelectedAddress(String(d.id));
     });
 
     const simulation = d3
@@ -328,16 +364,25 @@ export default function Page() {
             type="number"
             placeholder="Search Block Number"
             className="border border-gray-300 rounded-md px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
-            value={""}
-            onChange={() => {}}
+            value={searchValue}
+            onChange={(e) => setSearchValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const parsed = Number(searchValue);
+                if (Number.isNaN(parsed)) {
+                  alert("Please enter a valid block number.");
+                  return;
+                }
+                fetchSingleBlock(parsed);
+              }
+            }}
             id="block-search"
           />
           <button
             type="button"
             className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 shadow-sm"
             onClick={() => {
-              const input = (document.getElementById("block-search") as HTMLInputElement | null)?.value;
-              const parsed = input ? Number(input) : NaN;
+              const parsed = Number(searchValue);
               if (Number.isNaN(parsed)) {
                 alert("Please enter a valid block number.");
                 return;
@@ -374,6 +419,125 @@ export default function Page() {
           </button>
         </div>
       </header>
+
+      {/* Overlay: address + transactions */}
+      <div className="fixed top-24 left-6 z-[1000] w-[400px] max-h-[55vh] overflow-hidden">
+        <div className="rounded-xl border border-blue-300 bg-blue-600/25 backdrop-blur-md shadow-lg">
+          <div className="px-4 py-3 border-b border-blue-200/40 flex items-center justify-between">
+            <div>
+              {!selectedAddress && (
+                <>
+                  <div className="text-sm font-semibold text-blue-900">Selection</div>
+                  <div className="text-[11px] text-blue-900/80">Click a node to update</div>
+                </>
+              )}
+            </div>
+            {/* Copy button removed */}
+          </div>
+          <div className="p-4 overflow-auto" style={{ maxHeight: "46vh" }}>
+            {selectedAddress ? (
+              <div>
+                <div className="text-xs text-gray-800 font-bold mb-1">Address</div>
+                <div className="text-xs font-mono text-gray-900 mb-3 inline-flex items-center gap-2">
+                  <a
+                    href={`https://etherscan.io/address/${selectedAddress}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2 py-1 rounded-md bg-white/70 border border-blue-200 hover:bg-white/90 hover:underline"
+                    title={selectedAddress || undefined}
+                  >
+                    {shortHexLabel(selectedAddress, "addr")}
+                  </a>
+                </div>
+
+                <div className="text-xs text-gray-800 font-bold mb-1">Outgoing (from)</div>
+                <ul className="space-y-1">
+                  {graphLinks
+                    .filter((l) => l.from === selectedAddress)
+                    .slice(0, 50)
+                    .map((l, i) => (
+                      <li
+                        key={`out-${i}`}
+                        className="text-[11px] flex items-center gap-2 text-gray-900"
+                      >
+                        {l.hash ? (
+                          <a
+                            href={`https://etherscan.io/tx/${l.hash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2 py-0.5 rounded bg-white/70 border border-blue-200 hover:bg-white/90 hover:underline"
+                            title={l.hash}
+                          >
+                            {shortHexLabel(l.hash, "tx")}
+                          </a>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded bg-white/70 border border-blue-200">{shortHexLabel(undefined, "tx")}</span>
+                        )}
+                        <span className="text-gray-700">→</span>
+                        {l.to ? (
+                          <a
+                            href={`https://etherscan.io/address/${l.to}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2 py-0.5 rounded bg-white/70 border border-blue-200 hover:bg-white/90 hover:underline"
+                            title={l.to}
+                          >
+                            {shortHexLabel(l.to, "addr")}
+                          </a>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded bg-white/70 border border-blue-200">{shortHexLabel(undefined, "addr")}</span>
+                        )}
+                      </li>
+                    ))}
+                </ul>
+
+                <div className="text-xs text-gray-800 font-bold mt-3 mb-1">Incoming (to)</div>
+                <ul className="space-y-1">
+                  {graphLinks
+                    .filter((l) => l.to === selectedAddress)
+                    .slice(0, 50)
+                    .map((l, i) => (
+                      <li
+                        key={`in-${i}`}
+                        className="text-[11px] flex items-center gap-2 text-gray-900"
+                      >
+                        {l.hash ? (
+                          <a
+                            href={`https://etherscan.io/tx/${l.hash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2 py-0.5 rounded bg-white/70 border border-blue-200 hover:bg-white/90 hover:underline"
+                            title={l.hash}
+                          >
+                            {shortHexLabel(l.hash, "tx")}
+                          </a>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded bg-white/70 border border-blue-200">{shortHexLabel(undefined, "tx")}</span>
+                        )}
+                        <span className="text-gray-700">←</span>
+                        {l.from ? (
+                          <a
+                            href={`https://etherscan.io/address/${l.from}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2 py-0.5 rounded bg-white/70 border border-blue-200 hover:bg-white/90 hover:underline"
+                            title={l.from}
+                          >
+                            {shortHexLabel(l.from, "addr")}
+                          </a>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded bg-white/70 border border-blue-200">{shortHexLabel(undefined, "addr")}</span>
+                        )}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="text-xs text-gray-700">Click a node to view its transactions.</div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Graph Container */}
       <div id="graph-container" className="fixed top-[60px] left-0 right-0 bottom-0 overflow-hidden bg-white">
