@@ -170,11 +170,13 @@ export default function Page() {
       }
       // Legacy shape: { fromAddr: toAddr }
       Object.entries(item ?? {}).forEach(([from, to]) => {
-        if (!from || !to) return;
-        if (!nodesMap.has(from)) nodesMap.set(from, { id: from, group: "from" });
-        if (!nodesMap.has(to)) nodesMap.set(to, { id: to, group: "to" });
-        links.push({ source: from, target: to });
-        normalized.push({ from: String(from), to: String(to) });
+        const fromStr = String(from);
+        const toStr = String(to);
+        if (!fromStr || !toStr) return;
+        if (!nodesMap.has(fromStr)) nodesMap.set(fromStr, { id: fromStr, group: "from" });
+        if (!nodesMap.has(toStr)) nodesMap.set(toStr, { id: toStr, group: "to" });
+        links.push({ source: fromStr, target: toStr });
+        normalized.push({ from: fromStr, to: toStr });
       });
     });
 
