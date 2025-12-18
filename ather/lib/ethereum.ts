@@ -9,12 +9,13 @@ export class HttpError extends Error {
   }
 }
 
-const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY;
-if (!ALCHEMY_API_KEY) {
-  throw new Error("ALCHEMY_API_KEY environment variable is required");
+function getAlchemyUrl(): string {
+  const key = process.env.ALCHEMY_API_KEY;
+  if (!key) {
+    throw new HttpError(500, "ALCHEMY_API_KEY environment variable is required");
+  }
+  return `https://eth-mainnet.g.alchemy.com/v2/${key}`;
 }
-
-const ALCHEMY_URL = `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`;
 
 function getCacheFilePath(blockNumber: number) {
   // Store cache inside project root under ./data
@@ -41,7 +42,7 @@ export async function loadBlockData(blockNumber: number): Promise<any> {
 
   let data: any;
   try {
-    const res = await fetch(ALCHEMY_URL, {
+    const res = await fetch(getAlchemyUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

@@ -1,5 +1,3 @@
-# Local data cache created by API routes
-data/
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
@@ -40,4 +38,4 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-.vercel
+next-env.d.ts

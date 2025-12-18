@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   HttpError,
   loadBlockData,
@@ -12,14 +12,24 @@ type BlockRangeRequest = {
   end_block: number;
 };
 
-export async function POST(req: Request) {
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+export async function OPTIONS() {
+  return NextResponse.json({}, { status: 204, headers: CORS_HEADERS });
+}
+
+export async function POST(req: NextRequest) {
   let payload: BlockRangeRequest;
   try {
     payload = (await req.json()) as BlockRangeRequest;
   } catch {
     return NextResponse.json(
       { status: "error", detail: "Invalid JSON body." },
-      { status: 400 }
+      { status: 400, headers: CORS_HEADERS }
     );
   }
 
@@ -33,14 +43,14 @@ export async function POST(req: Request) {
   ) {
     return NextResponse.json(
       { status: "error", detail: "start_block and end_block must be non-negative integers" },
-      { status: 400 }
+      { status: 400, headers: CORS_HEADERS }
     );
   }
 
   if (start_block > end_block) {
     return NextResponse.json(
       { status: "error", detail: "start_block must be less than or equal to end_block" },
-      { status: 400 }
+      { status: 400, headers: CORS_HEADERS }
     );
   }
 
@@ -51,12 +61,15 @@ export async function POST(req: Request) {
       blocks.push(data);
     }
     const links = filterTransactionsRange(blocks);
-    return NextResponse.json({ status: "success", links }, { status: 200 });
+    return NextResponse.json(
+      { status: "success", links },
+      { status: 200, headers: CORS_HEADERS }
+    );
   } catch (err: any) {
     if (err instanceof HttpError) {
       return NextResponse.json(
         { status: "error", detail: err.message },
-        { status: err.status }
+        { status: err.status, headers: CORS_HEADERS }
       );
     }
     console.error(
@@ -65,7 +78,7 @@ export async function POST(req: Request) {
     );
     return NextResponse.json(
       { status: "error", detail: `Unexpected error: ${err?.message || String(err)}` },
-      { status: 500 }
+      { status: 500, headers: CORS_HEADERS }
     );
   }
 }
