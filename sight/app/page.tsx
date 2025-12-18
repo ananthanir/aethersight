@@ -34,6 +34,29 @@ export default function Page() {
   const [rangeStart, setRangeStart] = useState<string>("");
   const [rangeEnd, setRangeEnd] = useState<string>("");
   const apiBase = useMemo(() => getApiBase(), []);
+  // Hard-disable page scrollbars to prevent overflow during D3 interactions
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    const prevBodyMargin = body.style.margin;
+    const prevBodyMaxW = body.style.maxWidth;
+    const prevBodyMaxH = body.style.maxHeight;
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    body.style.margin = "0";
+    body.style.maxWidth = "100vw";
+    body.style.maxHeight = "100vh";
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      body.style.margin = prevBodyMargin;
+      body.style.maxWidth = prevBodyMaxW;
+      body.style.maxHeight = prevBodyMaxH;
+    };
+  }, []);
 
   const width = useMemo(() => (typeof window !== "undefined" ? window.innerWidth : 1200), []);
   const height = useMemo(() => (typeof window !== "undefined" ? window.innerHeight - 60 : 800), []);
@@ -130,6 +153,12 @@ export default function Page() {
 
     svg.selectAll("*").remove();
     const root = svg.append("g");
+    // Ensure a white background for the SVG area
+    root
+      .append("rect")
+      .attr("width", width)
+      .attr("height", height)
+      .attr("fill", "#ffffff");
 
     svg.on(".zoom", null);
     const zoomBehaviour = d3
@@ -162,33 +191,11 @@ export default function Page() {
       .attr("fill", (d: any) => color(d.group))
       .attr("stroke-width", 1.5);
 
-    const tooltip = d3.select("body").append("div").attr("class", "tooltip").style("opacity", 0);
+    // Remove tooltip creation; no hover effects
 
-    nodeSelection
-      .on("mouseover", (event: any, d: any) => {
-        tooltip
-          .transition()
-          .duration(200)
-          .style("display", "block")
-          .style("opacity", 1)
-          .style("background-color", "#555")
-          .style("color", "#fff")
-          .style("border-radius", "6px")
-          .style("padding", "4px 3px")
-          .style("width", "450px")
-          .style("text-align", "center");
-
-        tooltip
-          .html(`Address: ${d.id}`)
-          .style("left", `${event.pageX + 10}px`)
-          .style("top", `${event.pageY - 28}px`);
-      })
-      .on("mouseout", () => {
-        tooltip.transition().duration(500).style("opacity", 0).style("display", "none");
-      })
-      .on("click", (_: any, d: any) => {
-        alert(`Address: ${d.id}`);
-      });
+    nodeSelection.on("click", (_: any, d: any) => {
+      alert(`Address: ${d.id}`);
+    });
 
     const simulation = d3
       .forceSimulation(nodes)
@@ -292,20 +299,20 @@ export default function Page() {
   }
 
   return (
-    <div className="h-screen w-screen">
+    <div className="h-screen w-screen overflow-hidden bg-white text-gray-900">
       {/* Header */}
-      <header className="fixed top-0 left-0 w-full flex justify-between items-center p-3 bg-gray-100 z-50 shadow">
+      <header className="fixed top-0 left-0 w-full flex justify-between items-center p-3 bg-white border-b border-gray-200 z-50 shadow-sm">
         <div className="flex gap-2">
           <button
             type="button"
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 shadow-sm"
             onClick={() => fetchSingleBlock(blockNumber - 1)}
           >
             ← Previous
           </button>
           <button
             type="button"
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 shadow-sm"
             onClick={() => fetchSingleBlock(blockNumber + 1)}
           >
             Next →
@@ -320,14 +327,14 @@ export default function Page() {
           <input
             type="number"
             placeholder="Search Block Number"
-            className="border border-gray-300 rounded px-3 py-2 text-base"
+            className="border border-gray-300 rounded-md px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
             value={""}
             onChange={() => {}}
             id="block-search"
           />
           <button
             type="button"
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+            className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 shadow-sm"
             onClick={() => {
               const input = (document.getElementById("block-search") as HTMLInputElement | null)?.value;
               const parsed = input ? Number(input) : NaN;
@@ -344,7 +351,7 @@ export default function Page() {
           <input
             type="number"
             placeholder="From Block"
-            className="border border-gray-300 rounded px-3 py-2 text-base"
+            className="border border-gray-300 rounded-md px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
             value={rangeStart}
             onChange={(e) => setRangeStart(e.target.value)}
             id="range-start"
@@ -352,14 +359,14 @@ export default function Page() {
           <input
             type="number"
             placeholder="To Block"
-            className="border border-gray-300 rounded px-3 py-2 text-base"
+            className="border border-gray-300 rounded-md px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
             value={rangeEnd}
             onChange={(e) => setRangeEnd(e.target.value)}
             id="range-end"
           />
           <button
             type="button"
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 shadow-sm"
             onClick={() => fetchRangeBlocks(rangeStart, rangeEnd)}
             id="range-fetch-btn"
           >
@@ -369,15 +376,17 @@ export default function Page() {
       </header>
 
       {/* Graph Container */}
-      <div id="graph-container" className="absolute top-[60px] left-0 right-0 bottom-0 overflow-hidden">
-        <svg ref={svgRef} id="graph" className="block" />
+      <div id="graph-container" className="fixed top-[60px] left-0 right-0 bottom-0 overflow-hidden bg-white">
+        <svg
+          ref={svgRef}
+          id="graph"
+          className="block"
+          style={{ backgroundColor: "white", overflow: "hidden" }}
+        />
       </div>
 
       {/* Legend */}
-      <div
-        id="legend"
-        className="fixed bottom-5 left-5 bg-white border border-gray-300 p-3 rounded shadow"
-      >
+      <div id="legend" className="fixed bottom-5 left-5 bg-white/95 backdrop-blur border border-gray-200 p-3 rounded-md shadow-sm">
         <div className="flex items-center mb-2">
           <svg className="w-5 h-5 mr-2" viewBox="0 0 20 20">
             <circle cx="10" cy="10" r="5" fill="blue" />
