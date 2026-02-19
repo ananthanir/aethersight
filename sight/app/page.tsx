@@ -442,7 +442,7 @@ export default function Page() {
                 <div className="text-xs text-gray-800 font-bold mb-1">Address</div>
                 <div className="text-xs font-mono text-gray-900 mb-3 inline-flex items-center gap-2">
                   <a
-                    href={`https://etherscan.io/address/${selectedAddress}`}
+                    href={`https://polygonscan.com/address/${selectedAddress}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="px-2 py-1 rounded-md bg-white/70 border border-blue-200 hover:bg-white/90 hover:underline"
@@ -464,7 +464,7 @@ export default function Page() {
                       >
                         {l.hash ? (
                           <a
-                            href={`https://etherscan.io/tx/${l.hash}`}
+                            href={`https://polygonscan.com/tx/${l.hash}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="px-2 py-0.5 rounded bg-white/70 border border-blue-200 hover:bg-white/90 hover:underline"
@@ -478,7 +478,7 @@ export default function Page() {
                         <span className="text-gray-700">→</span>
                         {l.to ? (
                           <a
-                            href={`https://etherscan.io/address/${l.to}`}
+                            href={`https://polygonscan.com/address/${l.to}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="px-2 py-0.5 rounded bg-white/70 border border-blue-200 hover:bg-white/90 hover:underline"
@@ -505,7 +505,7 @@ export default function Page() {
                       >
                         {l.hash ? (
                           <a
-                            href={`https://etherscan.io/tx/${l.hash}`}
+                            href={`https://polygonscan.com/tx/${l.hash}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="px-2 py-0.5 rounded bg-white/70 border border-blue-200 hover:bg-white/90 hover:underline"
@@ -519,7 +519,7 @@ export default function Page() {
                         <span className="text-gray-700">←</span>
                         {l.from ? (
                           <a
-                            href={`https://etherscan.io/address/${l.from}`}
+                            href={`https://polygonscan.com/address/${l.from}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="px-2 py-0.5 rounded bg-white/70 border border-blue-200 hover:bg-white/90 hover:underline"

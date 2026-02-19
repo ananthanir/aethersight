@@ -14,7 +14,9 @@ function getAlchemyUrl(): string {
   if (!key) {
     throw new HttpError(500, "ALCHEMY_API_KEY environment variable is required");
   }
-  return `https://eth-mainnet.g.alchemy.com/v2/${key}`;
+  // return `https://eth-mainnet.g.alchemy.com/v2/${key}`;
+  return `https://polygon-mainnet.g.alchemy.com/v2/${key}`;
+
 }
 
 function getCacheFilePath(blockNumber: number) {
