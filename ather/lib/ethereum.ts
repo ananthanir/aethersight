@@ -82,24 +82,87 @@ export async function loadBlockData(blockNumber: number): Promise<any> {
   return data;
 }
 
-export type LinkItem = { from: string; to: string; hash?: string } | Record<string, string>;
+// Check if address is a contract using eth_getCode
+async function isContract(address: string): Promise<boolean> {
+  const payload = {
+    jsonrpc: "2.0",
+    method: "eth_getCode",
+    params: [address, "latest"],
+    id: 1,
+  };
 
-export function filterTransactions(data: any): string {
+  try {
+    const res = await fetch(getAlchemyUrl(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    const code = data?.result;
+    // If code is "0x" or empty, it's an EOA; otherwise it's a contract
+    return code && code !== "0x" && code.length > 2;
+  } catch {
+    return false;
+  }
+}
+
+// Batch check multiple addresses for contract status
+async function checkContractAddresses(addresses: string[]): Promise<Map<string, boolean>> {
+  const results = new Map<string, boolean>();
+  const uniqueAddresses = [...new Set(addresses)];
+  
+  // Process in parallel with concurrency limit
+  const batchSize = 10;
+  for (let i = 0; i < uniqueAddresses.length; i += batchSize) {
+    const batch = uniqueAddresses.slice(i, i + batchSize);
+    const checks = await Promise.all(batch.map(async (addr) => {
+      const isContractAddr = await isContract(addr);
+      return { addr, isContractAddr };
+    }));
+    for (const { addr, isContractAddr } of checks) {
+      results.set(addr, isContractAddr);
+    }
+  }
+  
+  return results;
+}
+
+export type LinkItem = { from: string; to: string; hash?: string; gasPrice?: string; fromIsContract?: boolean; toIsContract?: boolean } | Record<string, string>;
+
+export async function filterTransactions(data: any): Promise<string> {
   const transactions: any[] = data?.result?.transactions ?? [];
-  const filtered: Array<LinkItem> = [];
+  const preliminaryLinks: Array<{ from: string; to: string; hash?: string; gasPrice?: string }> = [];
+  
   for (const tx of transactions) {
     const fromAddr = tx?.from as string | undefined;
     const toAddr = tx?.to as string | undefined;
     const hash = (tx?.hash as string | undefined) ?? (tx?.transactionHash as string | undefined);
+    const gasPrice = tx?.gasPrice as string | undefined;
     if (!fromAddr || !toAddr) continue;
-    // Prefer structured object to include tx hash
-    filtered.push({ from: fromAddr, to: toAddr, hash });
+    preliminaryLinks.push({ from: fromAddr, to: toAddr, hash, gasPrice });
   }
+
+  // Collect all unique addresses
+  const allAddresses = preliminaryLinks.flatMap(l => [l.from, l.to]);
+  const contractMap = await checkContractAddresses(allAddresses);
+
+  // Build final links with contract flags
+  const filtered: Array<LinkItem> = preliminaryLinks.map(l => ({
+    from: l.from,
+    to: l.to,
+    hash: l.hash,
+    gasPrice: l.gasPrice,
+    fromIsContract: contractMap.get(l.from) ?? false,
+    toIsContract: contractMap.get(l.to) ?? false,
+  }));
+
   return JSON.stringify(filtered);
 }
 
-export function filterTransactionsRange(blocksData: any[]): string {
-  const aggregated: Array<LinkItem> = [];
+export async function filterTransactionsRange(blocksData: any[]): Promise<string> {
+  const preliminaryLinks: Array<{ from: string; to: string; hash?: string; gasPrice?: string }> = [];
+  
   for (const block of blocksData) {
     const txs: any[] = block?.result?.transactions ?? [];
     if (!txs || txs.length === 0) continue;
@@ -107,9 +170,25 @@ export function filterTransactionsRange(blocksData: any[]): string {
       const fromAddr = tx?.from as string | undefined;
       const toAddr = tx?.to as string | undefined;
       const hash = (tx?.hash as string | undefined) ?? (tx?.transactionHash as string | undefined);
+      const gasPrice = tx?.gasPrice as string | undefined;
       if (!fromAddr || !toAddr) continue;
-      aggregated.push({ from: fromAddr, to: toAddr, hash });
+      preliminaryLinks.push({ from: fromAddr, to: toAddr, hash, gasPrice });
     }
   }
+
+  // Collect all unique addresses
+  const allAddresses = preliminaryLinks.flatMap(l => [l.from, l.to]);
+  const contractMap = await checkContractAddresses(allAddresses);
+
+  // Build final links with contract flags
+  const aggregated: Array<LinkItem> = preliminaryLinks.map(l => ({
+    from: l.from,
+    to: l.to,
+    hash: l.hash,
+    gasPrice: l.gasPrice,
+    fromIsContract: contractMap.get(l.from) ?? false,
+    toIsContract: contractMap.get(l.to) ?? false,
+  }));
+
   return JSON.stringify(aggregated);
 }

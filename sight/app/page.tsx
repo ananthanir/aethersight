@@ -34,8 +34,9 @@ export default function Page() {
   const [rangeStart, setRangeStart] = useState<string>("");
   const [rangeEnd, setRangeEnd] = useState<string>("");
   const apiBase = useMemo(() => getApiBase(), []);
-  const [graphLinks, setGraphLinks] = useState<Array<{ from: string; to: string; hash?: string }>>([]);
+  const [graphLinks, setGraphLinks] = useState<Array<{ from: string; to: string; hash?: string; gasPrice?: string; fromIsContract?: boolean; toIsContract?: boolean }>>([]);
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
+  const [selectedLink, setSelectedLink] = useState<{ from: string; to: string; hash?: string; gasPrice?: string; fromIsContract?: boolean; toIsContract?: boolean } | null>(null);
   const [searchValue, setSearchValue] = useState<string>("");
     function shortHexLabel(value: string | undefined, kind: "tx" | "addr") {
       if (!value || typeof value !== "string") return `N/A (${kind})`;
@@ -50,6 +51,18 @@ export default function Page() {
         navigator.clipboard?.writeText(text);
       } catch (_) {
         // noop
+      }
+    }
+
+    function formatGasPrice(hexValue?: string): string {
+      if (!hexValue) return "N/A";
+      try {
+        const wei = BigInt(hexValue);
+        const gwei = Number(wei) / 1e9;
+        if (gwei >= 1) return `${gwei.toFixed(2)} Gwei`;
+        return `${Number(wei)} Wei`;
+      } catch {
+        return "N/A";
       }
     }
 
@@ -147,25 +160,36 @@ export default function Page() {
       ? JSON.parse(linksPayload)
       : [];
 
-    const normalized: Array<{ from: string; to: string; hash?: string }> = [];
+    const normalized: Array<{ from: string; to: string; hash?: string; gasPrice?: string; fromIsContract?: boolean; toIsContract?: boolean }> = [];
 
     if (!Array.isArray(parsedLinks) || parsedLinks.length === 0) {
       renderMessage("No transactions found for selection.", "#888");
       return;
     }
 
-    const nodesMap = new Map<string, { id: string; group: "from" | "to" }>();
+    const nodesMap = new Map<string, { id: string; group: "from" | "to" | "both"; isContract: boolean }>();
     const links: Array<{ source: string; target: string } & any> = [];
 
     parsedLinks.forEach((item) => {
-      // New shape: { from, to, hash? }
+      // New shape: { from, to, hash?, gasPrice?, fromIsContract?, toIsContract? }
       if (item && typeof item === "object" && "from" in item && "to" in item) {
         const from = String(item.from);
         const to = String(item.to);
-        if (!nodesMap.has(from)) nodesMap.set(from, { id: from, group: "from" });
-        if (!nodesMap.has(to)) nodesMap.set(to, { id: to, group: "to" });
-        links.push({ source: from, target: to, hash: item.hash });
-        normalized.push({ from, to, hash: item.hash });
+        const fromIsContract = item.fromIsContract ?? false;
+        const toIsContract = item.toIsContract ?? false;
+        // Track if address appears in both roles
+        if (!nodesMap.has(from)) {
+          nodesMap.set(from, { id: from, group: "from", isContract: fromIsContract });
+        } else if (nodesMap.get(from)!.group === "to") {
+          nodesMap.set(from, { id: from, group: "both", isContract: fromIsContract });
+        }
+        if (!nodesMap.has(to)) {
+          nodesMap.set(to, { id: to, group: "to", isContract: toIsContract });
+        } else if (nodesMap.get(to)!.group === "from") {
+          nodesMap.set(to, { id: to, group: "both", isContract: toIsContract });
+        }
+        links.push({ source: from, target: to, hash: item.hash, gasPrice: item.gasPrice, fromIsContract, toIsContract });
+        normalized.push({ from, to, hash: item.hash, gasPrice: item.gasPrice, fromIsContract, toIsContract });
         return;
       }
       // Legacy shape: { fromAddr: toAddr }
@@ -173,8 +197,16 @@ export default function Page() {
         const fromStr = String(from);
         const toStr = String(to);
         if (!fromStr || !toStr) return;
-        if (!nodesMap.has(fromStr)) nodesMap.set(fromStr, { id: fromStr, group: "from" });
-        if (!nodesMap.has(toStr)) nodesMap.set(toStr, { id: toStr, group: "to" });
+        if (!nodesMap.has(fromStr)) {
+          nodesMap.set(fromStr, { id: fromStr, group: "from", isContract: false });
+        } else if (nodesMap.get(fromStr)!.group === "to") {
+          nodesMap.set(fromStr, { id: fromStr, group: "both", isContract: false });
+        }
+        if (!nodesMap.has(toStr)) {
+          nodesMap.set(toStr, { id: toStr, group: "to", isContract: false });
+        } else if (nodesMap.get(toStr)!.group === "from") {
+          nodesMap.set(toStr, { id: toStr, group: "both", isContract: false });
+        }
         links.push({ source: fromStr, target: toStr });
         normalized.push({ from: fromStr, to: toStr });
       });
@@ -207,7 +239,31 @@ export default function Page() {
       });
     svg.call(zoomBehaviour as any);
 
-    const color = d3.scaleOrdinal<string>().domain(["from", "to"]).range(["blue", "green"]);
+    const color = d3.scaleOrdinal<string>().domain(["from", "to", "both"]).range(["blue", "green", "purple"]);
+
+    // Calculate gas price range for color/thickness scale
+    const gasPrices = links
+      .map((l: any) => {
+        if (!l.gasPrice) return null;
+        try { return Number(BigInt(l.gasPrice)); } catch { return null; }
+      })
+      .filter((v): v is number => v !== null && v > 0);
+    const minGas = gasPrices.length > 0 ? Math.min(...gasPrices) : 0;
+    const maxGas = gasPrices.length > 0 ? Math.max(...gasPrices) : 1;
+
+    // Color scale: green (low) -> yellow -> red (high)
+    const gasColorScale = d3.scaleSequential(d3.interpolateRdYlGn)
+      .domain([maxGas, minGas]); // reversed so high = red, low = green
+
+    // Thickness scale: 1 (low) -> 5 (high)
+    const gasThicknessScale = d3.scaleLinear()
+      .domain([minGas, maxGas])
+      .range([1, 5]);
+
+    function getLinkGasValue(d: any): number {
+      if (!d.gasPrice) return minGas;
+      try { return Number(BigInt(d.gasPrice)); } catch { return minGas; }
+    }
 
     const linkSelection = root
       .append("g")
@@ -215,23 +271,35 @@ export default function Page() {
       .data(links)
       .enter()
       .append("line")
-      .attr("stroke", "#999")
-      .attr("stroke-opacity", 0.6)
-      .attr("stroke-width", 1);
+      .attr("stroke", (d: any) => gasPrices.length > 0 ? gasColorScale(getLinkGasValue(d)) : "#999")
+      .attr("stroke-opacity", 0.7)
+      .attr("stroke-width", (d: any) => gasPrices.length > 0 ? gasThicknessScale(getLinkGasValue(d)) : 1)
+      .style("cursor", "pointer");
+
+    linkSelection.on("click", (_: any, d: any) => {
+      setSelectedAddress(null);
+      setSelectedLink({ from: d.source.id || d.source, to: d.target.id || d.target, hash: d.hash, gasPrice: d.gasPrice, fromIsContract: d.fromIsContract, toIsContract: d.toIsContract });
+    });
+
+    // Use path elements with d3.symbol for different shapes
+    const symbolCircle = d3.symbol().type(d3.symbolCircle).size(150);
+    const symbolSquare = d3.symbol().type(d3.symbolSquare).size(150);
 
     const nodeSelection = root
       .append("g")
-      .selectAll("circle")
+      .selectAll("path")
       .data(nodes)
       .enter()
-      .append("circle")
-      .attr("r", 6)
+      .append("path")
+      .attr("d", (d: any) => d.isContract ? symbolSquare() : symbolCircle())
       .attr("fill", (d: any) => color(d.group))
-      .attr("stroke-width", 1.5);
+      .attr("stroke-width", 1.5)
+      .style("cursor", "pointer");
 
     // Remove tooltip creation; no hover effects
 
     nodeSelection.on("click", (_: any, d: any) => {
+      setSelectedLink(null);
       setSelectedAddress(String(d.id));
     });
 
@@ -268,7 +336,7 @@ export default function Page() {
         .attr("x2", (d: any) => d.target.x)
         .attr("y2", (d: any) => d.target.y);
 
-      nodeSelection.attr("cx", (d: any) => d.x).attr("cy", (d: any) => d.y);
+      nodeSelection.attr("transform", (d: any) => `translate(${d.x},${d.y})`);
     });
   }
 
@@ -427,17 +495,71 @@ export default function Page() {
         <div className="rounded-xl border border-blue-300 bg-blue-600/25 backdrop-blur-md shadow-lg">
           <div className="px-4 py-3 border-b border-blue-200/40 flex items-center justify-between">
             <div>
-              {!selectedAddress && (
+              {!selectedAddress && !selectedLink && (
                 <>
                   <div className="text-sm font-semibold text-blue-900">Selection</div>
-                  <div className="text-[11px] text-blue-900/80">Click a node to update</div>
+                  <div className="text-[11px] text-blue-900/80">Click a node or link to update</div>
                 </>
               )}
             </div>
             {/* Copy button removed */}
           </div>
           <div className="p-4 overflow-auto" style={{ maxHeight: "46vh" }}>
-            {selectedAddress ? (
+            {selectedLink ? (
+              <div>
+                <div className="text-xs text-gray-800 font-bold mb-2">Transaction Link</div>
+                
+                <div className="text-xs text-gray-700 mb-1">From</div>
+                <div className="text-xs font-mono text-gray-900 mb-2">
+                  <a
+                    href={`https://polygonscan.com/address/${selectedLink.from}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2 py-1 rounded-md bg-white/70 border border-blue-200 hover:bg-white/90 hover:underline"
+                    title={selectedLink.from}
+                  >
+                    {shortHexLabel(selectedLink.from, "addr")}
+                  </a>
+                </div>
+                
+                <div className="text-xs text-gray-700 mb-1">To</div>
+                <div className="text-xs font-mono text-gray-900 mb-2">
+                  <a
+                    href={`https://polygonscan.com/address/${selectedLink.to}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2 py-1 rounded-md bg-white/70 border border-blue-200 hover:bg-white/90 hover:underline"
+                    title={selectedLink.to}
+                  >
+                    {shortHexLabel(selectedLink.to, "addr")}
+                  </a>
+                </div>
+                
+                {selectedLink.hash && (
+                  <>
+                    <div className="text-xs text-gray-700 mb-1">Transaction Hash</div>
+                    <div className="text-xs font-mono text-gray-900 mb-2">
+                      <a
+                        href={`https://polygonscan.com/tx/${selectedLink.hash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2 py-1 rounded-md bg-white/70 border border-blue-200 hover:bg-white/90 hover:underline"
+                        title={selectedLink.hash}
+                      >
+                        {shortHexLabel(selectedLink.hash, "tx")}
+                      </a>
+                    </div>
+                  </>
+                )}
+                
+                <div className="text-xs text-gray-700 mb-1">Gas Price</div>
+                <div className="text-xs font-mono text-gray-900">
+                  <span className="px-2 py-1 rounded-md bg-yellow-100 border border-yellow-300 text-yellow-800" title={selectedLink.gasPrice || undefined}>
+                    ⛽ {formatGasPrice(selectedLink.gasPrice)}
+                  </span>
+                </div>
+              </div>
+            ) : selectedAddress ? (
               <div>
                 <div className="text-xs text-gray-800 font-bold mb-1">Address</div>
                 <div className="text-xs font-mono text-gray-900 mb-3 inline-flex items-center gap-2">
@@ -489,6 +611,9 @@ export default function Page() {
                         ) : (
                           <span className="px-2 py-0.5 rounded bg-white/70 border border-blue-200">{shortHexLabel(undefined, "addr")}</span>
                         )}
+                        <span className="px-2 py-0.5 rounded bg-yellow-100 border border-yellow-300 text-yellow-800 text-[10px]" title={l.gasPrice || undefined}>
+                          ⛽ {formatGasPrice(l.gasPrice)}
+                        </span>
                       </li>
                     ))}
                 </ul>
@@ -530,12 +655,15 @@ export default function Page() {
                         ) : (
                           <span className="px-2 py-0.5 rounded bg-white/70 border border-blue-200">{shortHexLabel(undefined, "addr")}</span>
                         )}
+                        <span className="px-2 py-0.5 rounded bg-yellow-100 border border-yellow-300 text-yellow-800 text-[10px]" title={l.gasPrice || undefined}>
+                          ⛽ {formatGasPrice(l.gasPrice)}
+                        </span>
                       </li>
                     ))}
                 </ul>
               </div>
             ) : (
-              <div className="text-xs text-gray-700">Click a node to view its transactions.</div>
+              <div className="text-xs text-gray-700">Click a node or link to view details.</div>
             )}
           </div>
         </div>
@@ -553,17 +681,46 @@ export default function Page() {
 
       {/* Legend */}
       <div id="legend" className="fixed bottom-5 left-5 bg-white/95 backdrop-blur border border-gray-200 p-3 rounded-md shadow-sm">
-        <div className="flex items-center mb-2">
+        <div className="text-xs text-gray-600 mb-2 font-semibold">Node Type</div>
+        <div className="flex items-center mb-1">
+          <svg className="w-5 h-5 mr-2" viewBox="0 0 20 20">
+            <circle cx="10" cy="10" r="5" fill="#666" />
+          </svg>
+          <span className="whitespace-nowrap text-xs">EOA (Wallet)</span>
+        </div>
+        <div className="flex items-center mb-3">
+          <svg className="w-5 h-5 mr-2" viewBox="0 0 20 20">
+            <rect x="5" y="5" width="10" height="10" fill="#666" />
+          </svg>
+          <span className="whitespace-nowrap text-xs">Contract</span>
+        </div>
+        <div className="text-xs text-gray-600 mb-2 font-semibold">Address Role</div>
+        <div className="flex items-center mb-1">
           <svg className="w-5 h-5 mr-2" viewBox="0 0 20 20">
             <circle cx="10" cy="10" r="5" fill="blue" />
           </svg>
-          <span className="whitespace-nowrap mr-2">From Address</span>
+          <span className="whitespace-nowrap text-xs">From Address</span>
         </div>
-        <div className="flex items-center">
+        <div className="flex items-center mb-1">
           <svg className="w-5 h-5 mr-2" viewBox="0 0 20 20">
             <circle cx="10" cy="10" r="5" fill="green" />
           </svg>
-          <span className="whitespace-nowrap mr-2">To Address</span>
+          <span className="whitespace-nowrap text-xs">To Address</span>
+        </div>
+        <div className="flex items-center mb-3">
+          <svg className="w-5 h-5 mr-2" viewBox="0 0 20 20">
+            <circle cx="10" cy="10" r="5" fill="purple" />
+          </svg>
+          <span className="whitespace-nowrap text-xs">Both (From & To)</span>
+        </div>
+        <div className="border-t border-gray-200 pt-2">
+          <div className="text-xs text-gray-600 mb-1">Gas Price</div>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-gray-500">Low</span>
+            <div className="w-20 h-3 rounded" style={{ background: "linear-gradient(to right, #1a9850, #fee08b, #d73027)" }}></div>
+            <span className="text-[10px] text-gray-500">High</span>
+          </div>
+          <div className="text-[10px] text-gray-400 mt-1">Thicker = Higher gas</div>
         </div>
       </div>
     </div>
