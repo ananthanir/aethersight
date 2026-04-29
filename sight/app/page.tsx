@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import * as d3 from "d3";
 
 type LinkMap = Record<string, string>;
@@ -423,6 +424,12 @@ export default function Page() {
           >
             Next →
           </button>
+          <Link
+            href="/whiteboard"
+            className="bg-gray-800 text-white px-4 py-2 rounded-md hover:bg-gray-700 shadow-sm text-sm font-medium flex items-center gap-1"
+          >
+            🔍 Whiteboard
+          </Link>
         </div>
         <div id="block-info" className="text-lg font-bold text-gray-800">
           <span id="current-block" className="text-blue-600">
