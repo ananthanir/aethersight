@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       const data = await loadBlockData(bn);
       blocks.push(data);
     }
-    const links = filterTransactionsRange(blocks);
+    const links = await filterTransactionsRange(blocks);
     return NextResponse.json(
       { status: "success", links },
       { status: 200, headers: CORS_HEADERS }

@@ -28,7 +28,7 @@ export async function GET(
 
   try {
     const data = await loadBlockData(n);
-    const links = filterTransactions(data);
+    const links = await filterTransactions(data);
     return NextResponse.json(
       { status: "success", links },
       { status: 200, headers: CORS_HEADERS }
